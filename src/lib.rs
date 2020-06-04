@@ -86,6 +86,7 @@ mod tests {
             let mut response = String::from(line.1);
             response.push(' ');
             response.push_str(line.2);
+            response.push_str("\r\n");
 
             let header = get_response_header(&response);
             match &header {
