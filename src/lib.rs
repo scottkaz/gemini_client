@@ -5,7 +5,7 @@ pub struct Header {
 }
 
 impl Header {
-    fn get_status(&self) -> Option<Status> {
+    pub fn get_status(&self) -> Option<Status> {
         use Status::*;
         match self.status_code {
             10..=19 => Some(Input),
@@ -20,7 +20,7 @@ impl Header {
 }
 
 #[derive(Debug, PartialEq)]
-enum Status {
+pub enum Status {
     Input,
     Success,
     Redirect,
@@ -58,6 +58,10 @@ pub fn get_response_header(response: &str) -> Result<Header, MyErr> {
         .to_string();
 
     Ok(Header { status_code, meta })
+}
+pub fn get_response_body(response: &str) -> &str {
+    let response_lines = response.splitn(2, '\n').collect::<Vec<&str>>();
+    response_lines.get(1).unwrap()
 }
 
 #[cfg(test)]
