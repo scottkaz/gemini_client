@@ -1,3 +1,25 @@
+use std::net::SocketAddr;
+use url::Url;
+
+pub struct Config {
+    pub input_url: Url,
+    pub socket_addr: Vec<SocketAddr>,
+}
+
+impl Config {
+    pub fn new(args: &[String]) -> Result<Config, Box<dyn std::error::Error>> {
+        let input_url = args
+            .get(1)
+            .map_or("gemini://192.168.0.106:1965/client_test.gmi", |s| &s[..]);
+        let url = Url::parse(input_url)?;
+        let socket_addr = url.socket_addrs(|| Some(1965))?;
+        Ok(Config {
+            input_url: url,
+            socket_addr: socket_addr,
+        })
+    }
+}
+
 #[derive(Debug)]
 pub struct Header {
     pub status_code: u8,
@@ -66,8 +88,8 @@ pub fn get_response_body(response: &str) -> &str {
 
 #[cfg(test)]
 mod tests {
-    use crate::{get_response_header, MyErr, Header};
     use crate::Status::Input;
+    use crate::{get_response_header, Header, MyErr};
 
     #[test]
     fn bad_response() {
@@ -82,9 +104,21 @@ mod tests {
             (crate::Status::Input, "10", "input prompt goes here"),
             (crate::Status::Success, "20", "text/gemini"),
             (crate::Status::Redirect, "30", "gemini://example.org/"),
-            (crate::Status::TemporaryFailure, "40", "additional failure information"),
-            (crate::Status::PermanentFailure, "50", "additional failure information"),
-            (crate::Status::ClientCertificationRequired, "60", "additional certificate information"),
+            (
+                crate::Status::TemporaryFailure,
+                "40",
+                "additional failure information",
+            ),
+            (
+                crate::Status::PermanentFailure,
+                "50",
+                "additional failure information",
+            ),
+            (
+                crate::Status::ClientCertificationRequired,
+                "60",
+                "additional certificate information",
+            ),
         ];
         for line in response_list {
             let mut response = String::from(line.1);
@@ -98,7 +132,7 @@ mod tests {
                     assert_eq!(r.get_status().unwrap(), line.0);
                     assert_eq!(r.status_code, line.1.parse().unwrap());
                     assert_eq!(r.meta, line.2);
-                },
+                }
                 _ => panic!("bogus"),
             }
         }
