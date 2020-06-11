@@ -1,5 +1,8 @@
-use std::net::SocketAddr;
+use std::net::{SocketAddr, TcpStream};
+use std::io::{Read, Write};
 use url::Url;
+use native_tls::{TlsStream, TlsConnector};
+use std::string::FromUtf8Error;
 
 pub struct Config {
     pub input_url: Url,
@@ -62,9 +65,9 @@ impl From<&'static str> for MyErr {
     }
 }
 
-pub fn get_response_header(response: &str) -> Result<Header, MyErr> {
-    let response_lines = response.splitn(2, '\n').collect::<Vec<&str>>();
-    let header = response_lines.get(0).ok_or("ill-formed response")?;
+pub fn get_response_header(response: &Vec<u8>) -> Result<Header, MyErr> {
+    let mut header_iter = response.splitn(2, |c|*c == '\n' as u8);
+    let header = String::from_utf8_lossy(header_iter.next().ok_or("ill-formed response")?);
 
     let mut header_fields_iter = header.splitn(2, ' ');
     let status_code = header_fields_iter
@@ -81,9 +84,31 @@ pub fn get_response_header(response: &str) -> Result<Header, MyErr> {
 
     Ok(Header { status_code, meta })
 }
-pub fn get_response_body(response: &str) -> &str {
-    let response_lines = response.splitn(2, '\n').collect::<Vec<&str>>();
-    response_lines.get(1).unwrap()
+
+pub fn get_response_body(response: &Vec<u8>) -> Result<String, FromUtf8Error> {
+    let body = response.splitn(2, |c|*c == '\n' as u8).nth(1).unwrap();
+    String::from_utf8(body.to_vec())
+}
+
+pub fn get_tls_stream(sock: &[SocketAddr]) -> TlsStream<TcpStream> {
+    let connector = TlsConnector::builder()
+        .use_sni(false)
+        .danger_accept_invalid_certs(true)
+        .danger_accept_invalid_hostnames(true)
+        .build()
+        .unwrap();
+
+    let stream = TcpStream::connect(&*sock).unwrap();
+    connector.connect("", stream).unwrap()
+}
+
+pub fn send_request(stream: &mut TlsStream<TcpStream>, url: &Url) -> Vec<u8> {
+    let mut request = url.to_string();
+    request.push_str("\r\n");
+    stream.write_all(request.as_bytes()).unwrap();
+    let mut res = vec![];
+    stream.read_to_end(&mut res).unwrap();
+    res
 }
 
 #[cfg(test)]
@@ -93,13 +118,21 @@ mod tests {
 
     #[test]
     fn bad_response() {
-        let response = "asdfasdffasdf";
-        let header = get_response_header(response);
+        let response = "asdfasdffasdf".bytes().collect();
+        let header = get_response_header(&response);
         assert_eq!(header.is_err(), true);
     }
 
     #[test]
-    fn valid_input() {
+    fn not_utf8_response() {
+        let response = vec![33, 0xff, 34];
+        // let response = response.bytes().collect();
+        let header = get_response_header(&response);
+        assert_eq!(header.is_err(), true);
+    }
+
+    #[test]
+    fn valid_headers() {
         let response_list = vec![
             (crate::Status::Input, "10", "input prompt goes here"),
             (crate::Status::Success, "20", "text/gemini"),
@@ -125,6 +158,7 @@ mod tests {
             response.push(' ');
             response.push_str(line.2);
             response.push_str("\r\n");
+            let response = response.bytes().collect();
 
             let header = get_response_header(&response);
             match &header {
