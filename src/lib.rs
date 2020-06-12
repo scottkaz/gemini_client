@@ -59,6 +59,12 @@ pub struct MyErr {
     msg: &'static str,
 }
 
+#[derive(Debug)]
+pub enum BodyData {
+    Text(String),
+    Binary(Vec<u8>),
+}
+
 impl From<&'static str> for MyErr {
     fn from(msg: &'static str) -> MyErr {
         MyErr { msg }
@@ -85,9 +91,21 @@ pub fn get_response_header(response: &Vec<u8>) -> Result<Header, MyErr> {
     Ok(Header { status_code, meta })
 }
 
-pub fn get_response_body(response: &Vec<u8>) -> Result<String, FromUtf8Error> {
-    let body = response.splitn(2, |c|*c == '\n' as u8).nth(1).unwrap();
-    String::from_utf8(body.to_vec())
+
+pub fn get_response_body(meta: &str, response: &Vec<u8>) -> Result<BodyData, FromUtf8Error> {
+    let body = response.splitn(2, |c|*c == '\n' as u8).nth(1).unwrap().to_vec();
+    match meta {
+        "text/plain"|"text/gemini" => {
+            let text_body = String::from_utf8(body);
+            match text_body {
+                Ok(s) => Ok(BodyData::Text(s)),
+                Err(e) => Err(e),
+            }
+        },
+        "image/jpeg"|"video/mp4" => Ok(BodyData::Binary(body)),
+        // TODO make error for unknown mime types? or another BodyData variant...
+        _ => Ok(BodyData::Binary(body)),
+    }
 }
 
 pub fn get_tls_stream(sock: &[SocketAddr]) -> TlsStream<TcpStream> {

@@ -1,5 +1,5 @@
 use std::env;
-use gemini_client::{get_tls_stream, send_request, Header, Status};
+use gemini_client::{get_tls_stream, send_request, Header, Status, BodyData};
 
 fn main() {
     let args: Vec<String> = env::args().collect();
@@ -18,9 +18,11 @@ fn main() {
 
     match response_header.get_status() {
         Some(Status::Success) => {
-            let response_body = gemini_client::get_response_body(&instring);
+            let response_body =
+                gemini_client::get_response_body(&response_header.meta, &instring);
             match response_body {
-                Ok(s) => println!("{}", s),
+                Ok(BodyData::Text(s)) => println!("{}", s),
+                Ok(BodyData::Binary(s)) => println!("{:?}", s),
                 Err(e) => println!("{}", e),
             }
         },
