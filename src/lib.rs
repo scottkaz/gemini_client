@@ -1,24 +1,45 @@
-use std::net::{SocketAddr, TcpStream};
+use clap;
+use clap::{crate_authors, crate_version, App, Arg, SubCommand};
+use native_tls::{TlsConnector, TlsStream};
 use std::io::{Read, Write};
-use url::Url;
-use native_tls::{TlsStream, TlsConnector};
+use std::net::{SocketAddr, TcpStream};
 use std::string::FromUtf8Error;
+use url::Url;
 
 pub struct Config {
     pub input_url: Url,
     pub socket_addr: Vec<SocketAddr>,
+    pub output_file: Option<String>,
 }
 
 impl Config {
-    pub fn new(args: &[String]) -> Result<Config, Box<dyn std::error::Error>> {
+    pub fn new() -> Result<Config, Box<dyn std::error::Error>> {
+        let args = App::new("gemini-client")
+            .version(crate_version!())
+            .author(crate_authors!())
+            .about("Simple gemini protocol client")
+            .arg(Arg::with_name("URL").help("The URL to fetch").index(1))
+            .arg(
+                Arg::with_name("output")
+                    .short("o")
+                    .long("outfile")
+                    .value_name("FILE")
+                    .help("File to write the output to")
+                    .takes_value(true),
+            )
+            .get_matches();
         let input_url = args
-            .get(1)
-            .map_or("gemini://192.168.0.106:1965/client_test.gmi", |s| &s[..]);
-        let url = Url::parse(input_url)?;
-        let socket_addr = url.socket_addrs(|| Some(1965))?;
+            .value_of("URL")
+            .unwrap_or("gemini://192.168.0.106:1965/client_test.gmi");
+        let input_url = Url::parse(input_url)?;
+        assert!(input_url.scheme() == "gemini");
+        let socket_addr = input_url.socket_addrs(|| Some(1965))?;
+        let output_file = args.value_of("output").map(|f| String::from(f));
+
         Ok(Config {
-            input_url: url,
-            socket_addr: socket_addr,
+            input_url,
+            socket_addr,
+            output_file,
         })
     }
 }
@@ -72,7 +93,7 @@ impl From<&'static str> for MyErr {
 }
 
 pub fn get_response_header(response: &Vec<u8>) -> Result<Header, MyErr> {
-    let mut header_iter = response.splitn(2, |c|*c == '\n' as u8);
+    let mut header_iter = response.splitn(2, |c| *c == '\n' as u8);
     let header = String::from_utf8_lossy(header_iter.next().ok_or("ill-formed response")?);
 
     let mut header_fields_iter = header.splitn(2, ' ');
@@ -91,20 +112,21 @@ pub fn get_response_header(response: &Vec<u8>) -> Result<Header, MyErr> {
     Ok(Header { status_code, meta })
 }
 
-
 pub fn get_response_body(meta: &str, response: &Vec<u8>) -> Result<BodyData, FromUtf8Error> {
-    let body = response.splitn(2, |c|*c == '\n' as u8).nth(1).unwrap().to_vec();
-    match meta {
-        "text/plain"|"text/gemini" => {
+    let body = response
+        .splitn(2, |c| *c == '\n' as u8)
+        .nth(1)
+        .unwrap()
+        .to_vec();
+    match meta.starts_with("text/") {
+        true => {
             let text_body = String::from_utf8(body);
             match text_body {
                 Ok(s) => Ok(BodyData::Text(s)),
                 Err(e) => Err(e),
             }
-        },
-        "image/jpeg"|"video/mp4" => Ok(BodyData::Binary(body)),
-        // TODO make error for unknown mime types? or another BodyData variant...
-        _ => Ok(BodyData::Binary(body)),
+        }
+        false => Ok(BodyData::Binary(body)),
     }
 }
 
