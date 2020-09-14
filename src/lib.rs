@@ -32,7 +32,7 @@ impl Config {
             .value_of("URL")
             .unwrap_or("gemini://192.168.0.106:1965/client_test.gmi");
         let input_url = Url::parse(input_url)?;
-        assert!(input_url.scheme() == "gemini");
+        assert_eq!(input_url.scheme(), "gemini");
         let socket_addr = input_url.socket_addrs(|| Some(1965))?;
         let output_file = args.value_of("output").map(|f| String::from(f));
 
